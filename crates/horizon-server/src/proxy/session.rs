@@ -358,11 +358,17 @@ impl Session {
                 }
                 (st.phase, replay_play)
             };
+            // The new game's Play Login is followed by the chat session, before anything else the client
+            // sends: the game's writer is held from before the Login reaches the client until the replay
+            // is sent, so a message or a refreshed key the client answers with waits behind it.
+            let mut replaying = replay_play.then(|| writer.lock().unwrap_or_else(|e| e.into_inner()));
             if is_shutdown_kick(phase, id, &payload) && self.inner.hold_on_shutdown() {
+                drop(replaying);
                 drop(client);
                 return self.game_lost(generation);
             }
             if client.send(&body(id, &payload)).is_err() {
+                drop(replaying);
                 drop(client);
                 return self.end();
             }
@@ -370,10 +376,9 @@ impl Session {
             if is_disconnect(phase, id) {
                 return self.end();
             }
-            if replay_play {
+            if let Some(game) = replaying.as_mut() {
                 // The new game has no chat session for the player yet: the one the client made.
                 let packets = self.lock().replay.play_packets();
-                let mut game = writer.lock().unwrap_or_else(|e| e.into_inner());
                 for packet in packets {
                     let _ = game.send(&packet);
                 }
@@ -682,7 +687,10 @@ impl Session {
             let Some(game) = Self::mark_ended(&mut st) else {
                 return false;
             };
-            (st.phase, game)
+            // After StartConfiguration the client already reads Configuration packets, though `phase`
+            // stays Play until it acknowledges.
+            let phase = if st.pending_ack { Phase::Config } else { st.phase };
+            (phase, game)
         };
         let id = match phase {
             Phase::Config => ids::configuration::clientbound::DISCONNECT,
