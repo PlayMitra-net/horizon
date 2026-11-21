@@ -361,7 +361,8 @@ impl Session {
             // The new game's Play Login is followed by the chat session, before anything else the client
             // sends: the game's writer is held from before the Login reaches the client until the replay
             // is sent, so a message or a refreshed key the client answers with waits behind it.
-            let mut replaying = replay_play.then(|| writer.lock().unwrap_or_else(|e| e.into_inner()));
+            let mut replaying =
+                replay_play.then(|| writer.lock().unwrap_or_else(|e| e.into_inner()));
             if is_shutdown_kick(phase, id, &payload) && self.inner.hold_on_shutdown() {
                 drop(replaying);
                 drop(client);
@@ -689,7 +690,11 @@ impl Session {
             };
             // After StartConfiguration the client already reads Configuration packets, though `phase`
             // stays Play until it acknowledges.
-            let phase = if st.pending_ack { Phase::Config } else { st.phase };
+            let phase = if st.pending_ack {
+                Phase::Config
+            } else {
+                st.phase
+            };
             (phase, game)
         };
         let id = match phase {
