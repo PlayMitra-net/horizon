@@ -180,15 +180,11 @@ pub fn start(
     let inner = Arc::new(Inner {
         game: SocketAddr::from((Ipv4Addr::LOCALHOST, config.proxy.game_port)),
         secret,
-        compression: compression_threshold(config),
+        compression: compression_threshold(config, dir),
         keys,
-        status_enabled: config.properties.get("enable-status").is_none_or(|value| {
-            value.as_bool().unwrap_or_else(|| {
-                value
-                    .as_str()
-                    .is_some_and(|s| s.eq_ignore_ascii_case("true"))
-            })
-        }),
+        status_enabled: !config
+            .effective_property(dir, "enable-status")
+            .is_some_and(|v| v.trim().eq_ignore_ascii_case("false")),
         gate: Mutex::new(GameGate {
             phase: Gate::Holding,
             generation: 0,
@@ -256,12 +252,10 @@ impl Proxy {
 }
 
 /// `network-compression-threshold` as the owner set it, vanilla's 256 otherwise.
-fn compression_threshold(config: &Config) -> i32 {
+fn compression_threshold(config: &Config, dir: &Path) -> i32 {
     config
-        .properties
-        .get("network-compression-threshold")
-        .and_then(|v| v.as_integer())
-        .and_then(|v| i32::try_from(v).ok())
+        .effective_property(dir, "network-compression-threshold")
+        .and_then(|v| v.trim().parse::<i32>().ok())
         .unwrap_or(256)
 }
 

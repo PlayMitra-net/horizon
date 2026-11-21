@@ -931,6 +931,16 @@ impl Config {
             .map_or(4, |p| p.op_permission_level)
     }
 
+    /// A key as the game reads it at its next start: `server.properties` with this configuration's keys
+    /// written over it (as [`Config::write_properties`] does), so a key only the file sets counts too.
+    pub fn effective_property(&self, dir: &Path, key: &str) -> Option<String> {
+        let mut properties = read_properties(&dir.join(PROPERTIES)).unwrap_or_default();
+        for (k, value) in self.vanilla() {
+            properties.put(&k, value);
+        }
+        properties.get(key).map(str::to_owned)
+    }
+
     /// A configuration from a vanilla `server.properties`: typed settings from their keys, and every other
     /// key the file sets to something other than vanilla's default under `[properties]`.
     pub fn import(source: &Properties) -> Result<Self, String> {
@@ -1717,6 +1727,26 @@ keep = {keep}
         let e = Config::default().write_properties(&dir).unwrap_err();
         assert!(e.to_string().contains(PROPERTIES), "{e}");
         assert_eq!(std::fs::read_link(&path).unwrap(), target);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A key only `server.properties` sets reaches whoever asks as the game would read it, and server.toml
+    /// wins where both set it.
+    #[test]
+    fn an_effective_property_includes_keys_only_the_file_sets() {
+        let dir = std::env::temp_dir().join(format!("horizon-server-effective-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(PROPERTIES),
+            "enable-status=false\nnetwork-compression-threshold=64\n",
+        )
+        .unwrap();
+        let config = Config::parse("[properties]\nnetwork-compression-threshold = 512\n").unwrap();
+        assert_eq!(config.effective_property(&dir, "enable-status").as_deref(), Some("false"));
+        assert_eq!(
+            config.effective_property(&dir, "network-compression-threshold").as_deref(),
+            Some("512")
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
