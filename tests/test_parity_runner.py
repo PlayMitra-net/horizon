@@ -817,6 +817,26 @@ class ParityRunnerTests(unittest.TestCase):
         self.assertEqual(sizes, {"cargo-01.html": 40, "cargo-03.html": 20, "prebuild-calls.txt": len(calls)})
         self.assertLessEqual(sum(sizes.values()), 150)
 
+    @unittest.skipUnless(shutil.which("du"), "du is POSIX")
+    def test_the_build_folders_size_is_reported_per_profile_folder(self):
+        with tempfile.TemporaryDirectory() as temp:
+            target = Path(temp, "target")
+            for name, size in (("fast", 300_000), ("debug", 100_000)):
+                (target / name).mkdir(parents=True)
+                (target / name / "unit").write_bytes(b"x" * size)
+            (target / "CACHEDIR.TAG").write_text("tag")  # a file at the top: not a folder of its own
+            if hasattr(os, "symlink"):
+                os.symlink(target / "fast", target / "linked")  # a link is never followed or counted
+            sizes = parity.target_sizes(target)
+            self.assertEqual(set(sizes), {"fast", "debug"})
+            self.assertGreaterEqual(sizes["fast"], 290)
+            self.assertGreater(sizes["fast"], sizes["debug"])
+            Path(temp, "empty").mkdir()
+            self.assertEqual(parity.target_sizes(Path(temp, "empty")), {})
+        self.assertEqual(parity.describe_target_sizes({"debug": 1 << 20, "fast": 3 << 20}),
+                         "build folder after the prebuild: 4.0 GB (fast 3.0 GB, debug 1.0 GB)")
+        self.assertIsNone(parity.report(lambda: parity.describe_target_sizes({})), "no folder yet: no line")
+
     def test_a_collection_that_cannot_be_finished_publishes_nothing(self):
         failures = {"the cap": ({}, mock.patch.object(parity.PrebuildTimings, "size",
                                                       return_value=parity.PREBUILD_TIMINGS_CAP + 1)),

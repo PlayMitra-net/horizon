@@ -1095,6 +1095,31 @@ def remove_collection(path):
 PREBUILD_TIMINGS_NAMES = re.compile(r"cargo-\d{2,}\.html|prebuild-calls\.txt")
 
 
+def target_sizes(target, timeout=120):
+    """KiB per top-level folder of the build folder (debug, fast, release, ...), from one `du -sk`, which counts each
+    file once and follows no link. runner-gc.sh's MAX_TARGET_GB is set from these (#19465)."""
+    # cargo-timings holds only these reports (kB): left out, so a folder with no build yet reports nothing.
+    folders = sorted(entry.path for entry in os.scandir(target)
+                     if entry.is_dir(follow_symlinks=False) and entry.name != "cargo-timings")
+    if not folders:
+        return {}
+    done = subprocess.run(["du", "-sk", "--", *folders], capture_output=True, text=True, timeout=timeout, check=True,
+                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    sizes = {}
+    for line in done.stdout.splitlines():
+        kib, _, path = line.partition("	")
+        sizes[Path(path).name] = int(kib)
+    return sizes
+
+
+def describe_target_sizes(sizes):
+    if not sizes:
+        raise ValueError("no build folder yet")  # report() leaves the line out
+    gib = lambda kib: f"{kib / (1 << 20):.1f} GB"
+    parts = ", ".join(f"{name} {gib(kib)}" for name, kib in sorted(sizes.items(), key=lambda item: -item[1]))
+    return f"build folder after the prebuild: {gib(sum(sizes.values()))} ({parts})"
+
+
 class PrebuildTimings:
     """The prebuild's timing reports: cargo-NN.html for run NN and prebuild-calls.txt, nothing else, at most
     PREBUILD_TIMINGS_CAP in all. They are collected in a working folder and renamed to
@@ -1245,6 +1270,10 @@ class PrebuildTimings:
         then publishes it; anything failing publishes nothing."""
         if not self.on:
             return
+        # Measured here, after the turn: du reads the whole folder and takes seconds.
+        sizes = report(lambda: describe_target_sizes(target_sizes(Path(self.environment["CARGO_TARGET_DIR"]))))
+        if sizes:
+            self.calls.append(sizes)
         try:
             self.hold_to_cap()
             with os.scandir(self.folder) as entries:
