@@ -1734,7 +1734,8 @@ keep = {keep}
     /// wins where both set it.
     #[test]
     fn an_effective_property_includes_keys_only_the_file_sets() {
-        let dir = std::env::temp_dir().join(format!("horizon-server-effective-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("horizon-server-effective-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             dir.join(PROPERTIES),
@@ -1742,9 +1743,14 @@ keep = {keep}
         )
         .unwrap();
         let config = Config::parse("[properties]\nnetwork-compression-threshold = 512\n").unwrap();
-        assert_eq!(config.effective_property(&dir, "enable-status").as_deref(), Some("false"));
         assert_eq!(
-            config.effective_property(&dir, "network-compression-threshold").as_deref(),
+            config.effective_property(&dir, "enable-status").as_deref(),
+            Some("false")
+        );
+        assert_eq!(
+            config
+                .effective_property(&dir, "network-compression-threshold")
+                .as_deref(),
             Some("512")
         );
         std::fs::remove_dir_all(&dir).unwrap();
