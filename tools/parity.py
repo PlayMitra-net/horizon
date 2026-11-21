@@ -872,7 +872,6 @@ def prebuild(artifacts, jobs, tests=()):
     commands = prebuild_commands(artifacts, packages, tests)
     role = os.environ.get("HORIZON_COMPILE_LOCK_ROLE") or "pr"
     timings = PrebuildTimings(environment) if os.environ.get(PREBUILD_TIMINGS) == "1" else None
-    ended = False  # the turn closed normally: not cancelled, stopped at its limit or raised
     try:
         with compile_lock.Turn(role) as turn:
             limit = PREBUILD_LIMIT.get(role)
@@ -958,12 +957,13 @@ def prebuild(artifacts, jobs, tests=()):
                     timings.after_call(number, len(commands), summary, keep=not retried)
             report(lambda: describe_machine(os.cpu_count(), load, machine_load()))
             report(lambda: describe_sccache(stats, sccache_stats(environment)))
-        ended = True
+        if timings:
+            # Here, not in finally: a cancelled, limit-stopped or raising prebuild doesn't wait on du, and a signal
+            # during du still reaches finish().
+            timings.measure_target()
     finally:
         # After the turn is released (and the limit's error line): only file work on the collection folder.
         if timings:
-            if ended:
-                timings.measure_target()
             timings.finish()
     return not errors and not failed, errors
 
